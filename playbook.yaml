@@ -1,0 +1,173 @@
+---
+- hosts: 127.0.0.1
+  become: true                              
+  vars_files:
+    - ./vars.yml
+
+  tasks:
+  - name: Update and update apt packages                          
+    ansible.builtin.apt: state=latest force_apt_get=yes                                       
+
+  - name: Install required apt packages            
+    ansible.builtin.apt:                                           
+      pkg:                                         
+        - git                                      
+        - imagemagick                              
+        - libavformat-dev                          
+        - libavutil-dev                            
+        - libavcodec-dev                           
+        - libcamera-dev                            
+        - liblivemedia-dev                         
+        - v4l-utils                                
+        - pkg-config                               
+        - xxd                                      
+        - build-essential                          
+        - cmake                                    
+        - libssl-dev                               
+      state: latest                                
+      update_cache: true                           
+
+  - name:  Create/mount ramdisk
+    ansible.posix.mount:
+      path: /tmp
+      src: tmpfs
+      fstype: tmpfs
+      opts: rw,nodev,nosuid,size=256M,mode=177
+      state: present
+    tags:
+      - ramdisk
+
+  - name: Clone Remote Git Repository                             
+    git:                                                          
+      repo: https://github.com/ayufan-research/camera-streamer.git
+      dest: /home/ubuntu/camera-streamer                          
+      recursive: true 
+      force: true
+
+   
+  - name: Copy patch script
+    copy:                                                                                     
+      src: files/patch.sh
+      dest: /home/ubuntu/camera-streamer/patch.sh
+    tags:
+      - camera-streamer 
+
+  - name: Run patch script
+    ansible.builtin.script: /home/ubuntu/camera-streamer/patch.sh
+
+  - name: Add camera stream endpoint                                                             
+    blockinfile:                                                                                   
+      path: /home/ubuntu/camera-streamer/cmd/camera-streamer/http.c
+      marker: "// camera-endpoint {mark} ANSIBLE MANAGED BLOCK"
+      insertafter: 'http_method_t http_methods\[\] \= \{'
+      block: |
+        { "GET",  "/camera", http_content, "text/html", html_camera_html, 0, &html_camera_html_len }, 
+    tags:
+      - camera-streamer 
+
+  - name: Copy webcam html file
+    copy:                                                                                     
+      src: files/camera.html                                                                  
+      dest: /home/ubuntu/camera-streamer/html/camera.html                                     
+    tags:
+      - camera-streamer 
+                                                                                                  
+  - name: Add camera_html[] settings                                                              
+    blockinfile:                                                                                   
+      path: /home/ubuntu/camera-streamer/cmd/camera-streamer/http.c
+      append_newline: true
+      prepend_newline: true
+      marker: "// camera_html {mark} ANSIBLE MANAGED BLOCK"
+      insertafter: '^\#include \"output\/output\.h'
+      block: |
+        extern unsigned char html_camera_html[];
+        extern unsigned int html_camera_html_len;
+    tags:
+      - camera-streamer 
+
+  - name: Build the make clean            
+    make:                   
+      chdir: /home/ubuntu/camera-streamer     
+      target: clean
+    tags:
+      - camera-streamer 
+
+  - name: Build the make target            
+    make:                   
+      chdir: /home/ubuntu/camera-streamer     
+    tags:
+      - camera-streamer 
+
+  - name: Build install target            
+    make:                   
+      chdir: /home/ubuntu/camera-streamer     
+      target: install                         
+    tags:
+      - camera-streamer 
+
+  - name: Copy systemd unit
+    copy:                                                                                     
+      src: files/camera-streamer-printercam.service
+      dest: /etc/systemd/system/camera-streamer-printercam.service
+    tags:
+      - systemd
+
+
+  - name: Copy snapshot script
+    copy:                                                                                     
+      src: files/uploadsnapshots.sh
+      dest: /home/ubuntu/uploadsnapshots.sh
+    tags:
+      - snapshot
+
+  - name: Template a snapshot config file
+    ansible.builtin.template:
+      src: templates/snapshot.conf.j2
+      dest: /home/ubuntu/snapshot.conf
+      mode: '0755'
+      owner: root
+      group: root
+    tags:
+      - snapshot
+
+  - name: Copy systemd unit
+    copy:                                                                                     
+      src: files/upload-snapshots.service
+      dest: /etc/systemd/system/upload-snapshots.service
+    tags:
+      - systemd
+
+
+  - name: Reload systemd daemon
+    ansible.builtin.systemd_service:
+      daemon_reload: true
+    tags:
+      - systemd
+
+  - name: Enable service upload-snapshots.service 
+    ansible.builtin.systemd_service:
+      name: upload-snapshots
+      enabled: true
+    tags:
+      - systemd
+
+  - name: Enable service camera-streamer-printercam
+    ansible.builtin.systemd_service:
+      name: camera-streamer-printercam
+      enabled: true
+    tags:
+      - systemd
+
+  - name: Make sure a service unit is running
+    ansible.builtin.systemd_service:
+      state: started
+      name: camera-streamer-printercam
+    tags:
+      - systemd
+
+  - name: Make sure a service unit is running
+    ansible.builtin.systemd_service:
+      state: started
+      name: upload-snapshots
+    tags:
+      - systemd

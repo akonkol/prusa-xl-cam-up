@@ -1,0 +1,214 @@
+From 78c7b1b78a610c58bf06a1dcce7ff296225d2f73 Mon Sep 17 00:00:00 2001
+From: Patrick Gehrsitz <mryel00.github@gmail.com>
+Date: Sat, 30 Nov 2024 12:56:41 +0100
+Subject: [PATCH 1/6] libcamera: add support for ControlTypePoint
+
+Signed-off-by: Patrick Gehrsitz <mryel00.github@gmail.com>
+---
+ device/libcamera/options.cc | 31 +++++++++++++++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/device/libcamera/options.cc b/device/libcamera/options.cc
+index 33ed83d..2d05dae 100644
+--- a/device/libcamera/options.cc
++++ b/device/libcamera/options.cc
+@@ -217,6 +217,11 @@ static int libcamera_device_dump_control_option(device_option_fn fn, void *opaqu
+   case libcamera::ControlTypeString:
+     opt.type = device_option_type_string;
+     break;
++
++  case libcamera::ControlTypePoint:
++    opt.type = device_option_type_float;
++    opt.elems = 2;
++    break;
+   }
+ 
+   auto named_values = libcamera_find_control_ids(control_id.id());
+@@ -349,6 +354,27 @@ static libcamera::Size libcamera_parse_size(const char *value)
+   return libcamera::Size();
+ }
+ 
++static libcamera::Point libcamera_parse_point(const char *value)
++{
++  static const char *POINT_PATTERNS[] =
++  {
++    "(%d,%d)",
++    "%d,%d",
++    NULL
++  };
++
++  for (int i = 0; POINT_PATTERNS[i]; i++) {
++    libcamera::Point point;
++
++    if (2 == sscanf(value, POINT_PATTERNS[i],
++      &point.x, &point.y)) {
++      return point;
++    }
++  }
++
++  return libcamera::Point();
++}
++
+ template<typename T, typename F>
+ static bool libcamera_parse_control_value(libcamera::ControlValue &control_value, const char *value, const F &fn)
+ {
+@@ -436,6 +462,11 @@ int libcamera_device_set_option(device_t *dev, const char *keyp, const char *val
+ 
+     case libcamera::ControlTypeString:
+       break;
++    
++    case libcamera::ControlTypePoint:
++      libcamera_parse_control_value<libcamera::Point>(
++        control_value, value, libcamera_parse_point);
++      break;
+     }
+ 
+     if (control_value.isNone()) {
+
+From 4316b3b90a3490887dd3347f6906e0a8c42d3477 Mon Sep 17 00:00:00 2001
+From: Patrick Gehrsitz <mryel00.github@gmail.com>
+Date: Sat, 30 Nov 2024 12:59:02 +0100
+Subject: [PATCH 2/6] libcamera: fix compile error on missing ControlType
+
+This adds a runtime error for missing ControlTypes to fix compilation errors if there are new ControlTypes that are not implemented yet.
+
+Signed-off-by: Patrick Gehrsitz <mryel00.github@gmail.com>
+---
+ device/libcamera/options.cc | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/device/libcamera/options.cc b/device/libcamera/options.cc
+index 2d05dae..5238e40 100644
+--- a/device/libcamera/options.cc
++++ b/device/libcamera/options.cc
+@@ -222,6 +222,9 @@ static int libcamera_device_dump_control_option(device_option_fn fn, void *opaqu
+     opt.type = device_option_type_float;
+     opt.elems = 2;
+     break;
++
++  default:
++    throw std::runtime_error("ControlType unsupported or not implemented");
+   }
+ 
+   auto named_values = libcamera_find_control_ids(control_id.id());
+@@ -467,6 +470,9 @@ int libcamera_device_set_option(device_t *dev, const char *keyp, const char *val
+       libcamera_parse_control_value<libcamera::Point>(
+         control_value, value, libcamera_parse_point);
+       break;
++
++    default:
++      throw std::runtime_error("ControlType unsupported or not implemented");
+     }
+ 
+     if (control_value.isNone()) {
+
+From ad561eb2980d1c54c015f3d5e048c0cb040478f3 Mon Sep 17 00:00:00 2001
+From: Patrick Gehrsitz <mryel00.github@gmail.com>
+Date: Sat, 30 Nov 2024 14:11:53 +0100
+Subject: [PATCH 3/6] chore: remove whitespaces
+
+Signed-off-by: Patrick Gehrsitz <mryel00.github@gmail.com>
+---
+ device/libcamera/options.cc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/device/libcamera/options.cc b/device/libcamera/options.cc
+index 5238e40..e82deb2 100644
+--- a/device/libcamera/options.cc
++++ b/device/libcamera/options.cc
+@@ -465,7 +465,7 @@ int libcamera_device_set_option(device_t *dev, const char *keyp, const char *val
+ 
+     case libcamera::ControlTypeString:
+       break;
+-    
++
+     case libcamera::ControlTypePoint:
+       libcamera_parse_control_value<libcamera::Point>(
+         control_value, value, libcamera_parse_point);
+
+From d91783bac7b491f88d621a9d281fa01e2a44d086 Mon Sep 17 00:00:00 2001
+From: Patrick Gehrsitz <mryel00.github@gmail.com>
+Date: Sat, 30 Nov 2024 14:16:04 +0100
+Subject: [PATCH 4/6] libcamera: only use ControlTypePoint for libcamera>=0.3.2
+
+Signed-off-by: Patrick Gehrsitz <mryel00.github@gmail.com>
+---
+ device/libcamera/options.cc | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/device/libcamera/options.cc b/device/libcamera/options.cc
+index e82deb2..e12eccc 100644
+--- a/device/libcamera/options.cc
++++ b/device/libcamera/options.cc
+@@ -218,10 +218,12 @@ static int libcamera_device_dump_control_option(device_option_fn fn, void *opaqu
+     opt.type = device_option_type_string;
+     break;
+ 
++#if LIBCAMERA_VERSION_MAJOR == 0 && LIBCAMERA_VERSION_MINOR > 3 && LIBCAMERA_VERSION_PATCH >= 2 // Support for older libcamera versions
+   case libcamera::ControlTypePoint:
+     opt.type = device_option_type_float;
+     opt.elems = 2;
+     break;
++#endif
+ 
+   default:
+     throw std::runtime_error("ControlType unsupported or not implemented");
+
+From e2caf5ba03154e43cf5c33b0c8aed4cbf4e2b2a5 Mon Sep 17 00:00:00 2001
+From: Patrick Gehrsitz <mryel00.github@gmail.com>
+Date: Sat, 30 Nov 2024 20:01:37 +0100
+Subject: [PATCH 5/6] fix: add version check to second switch case
+
+Signed-off-by: Patrick Gehrsitz <mryel00.github@gmail.com>
+---
+ device/libcamera/options.cc | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/device/libcamera/options.cc b/device/libcamera/options.cc
+index e12eccc..e71b38a 100644
+--- a/device/libcamera/options.cc
++++ b/device/libcamera/options.cc
+@@ -468,10 +468,12 @@ int libcamera_device_set_option(device_t *dev, const char *keyp, const char *val
+     case libcamera::ControlTypeString:
+       break;
+ 
++#if LIBCAMERA_VERSION_MAJOR == 0 && LIBCAMERA_VERSION_MINOR > 3 && LIBCAMERA_VERSION_PATCH >= 2 // Support for older libcamera versions
+     case libcamera::ControlTypePoint:
+       libcamera_parse_control_value<libcamera::Point>(
+         control_value, value, libcamera_parse_point);
+       break;
++#endif
+ 
+     default:
+       throw std::runtime_error("ControlType unsupported or not implemented");
+
+From e50a855cd5b9e282152dcf103c32b99d587831c3 Mon Sep 17 00:00:00 2001
+From: Patrick Gehrsitz <mryel00.github@gmail.com>
+Date: Sat, 30 Nov 2024 20:24:10 +0100
+Subject: [PATCH 6/6] fix: add version check to libcamera_parse_point
+
+Signed-off-by: Patrick Gehrsitz <mryel00.github@gmail.com>
+---
+ device/libcamera/options.cc | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/device/libcamera/options.cc b/device/libcamera/options.cc
+index e71b38a..7420c61 100644
+--- a/device/libcamera/options.cc
++++ b/device/libcamera/options.cc
+@@ -359,6 +359,7 @@ static libcamera::Size libcamera_parse_size(const char *value)
+   return libcamera::Size();
+ }
+ 
++#if LIBCAMERA_VERSION_MAJOR == 0 && LIBCAMERA_VERSION_MINOR > 3 && LIBCAMERA_VERSION_PATCH >= 2 // Support for older libcamera versions
+ static libcamera::Point libcamera_parse_point(const char *value)
+ {
+   static const char *POINT_PATTERNS[] =
+@@ -379,6 +380,7 @@ static libcamera::Point libcamera_parse_point(const char *value)
+ 
+   return libcamera::Point();
+ }
++#endif
+ 
+ template<typename T, typename F>
+ static bool libcamera_parse_control_value(libcamera::ControlValue &control_value, const char *value, const F &fn)

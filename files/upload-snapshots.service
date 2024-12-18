@@ -1,0 +1,9 @@
+[Unit]
+Description=Snapshot service
+
+[Service]
+ExecStart=/home/ubuntu/uploadsnapshots.sh
+
+[Install]
+WantedBy=multi-user.target
+
