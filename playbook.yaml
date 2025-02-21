@@ -44,9 +44,15 @@
       recursive: true 
       force: true
 
+  - name: Copy patch file
+    copy:                                                                                     
+      src: files/160.patch
+      dest: /home/ubuntu/camera-streamer/160.patch
+    tags:
+      - camera-streamer
    
   - name: Copy patch script
-    copy:                                                                                     
+    copy:
       src: files/patch.sh
       dest: /home/ubuntu/camera-streamer/patch.sh
     tags:
